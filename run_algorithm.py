@@ -9,7 +9,7 @@ output_csv = "Assignments.csv"  # result
 max_score = 8                   # max score used in scoring
 
 # --- Load activity capacities from JSON ---
-activity_file = "activity_capacity.json"  # path to your JSON file
+activity_file = "activities.json"  # path to your JSON file
 
 if not os.path.exists(activity_file):
     raise FileNotFoundError(f"{activity_file} not found. Create it with activity capacities (see example).")
