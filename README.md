@@ -61,7 +61,11 @@ python assigner.py
 ### 📋 What to Edit in the Script
 You will likely only need to modify the **Config** section at the top of the `assigner.py` file to fit your specific setup.
 
-VariableDescriptioninput_csvThe name of your input CSV file (default: "ScoreMatrix.csv").output_csvThe name of the resulting assignment file (default: "Assignments.csv").max_scoreCRITICAL: The highest preference score used in your system (default: 8). This is used to convert preference (max-score) to cost (min-score). Must be set correctly.
+| Variable | Description |
+| :--- | :--- |
+| `input_csv` | The name of your input CSV file (default: `"ScoreMatrix.csv"`). |
+| `output_csv` | The name of the resulting assignment file (default: `"Assignments.csv"`). |
+| `max_score` | **CRITICAL:** The highest preference score used in your system (default: `8`). This is used to convert preference (`max_score`) to cost (`min_score`). **Must be set correctly.** |
 
 ### 💡 How the Optimization Works
 The script is a solver for a **minimum cost assignment problem**:
