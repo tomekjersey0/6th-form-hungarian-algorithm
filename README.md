@@ -25,4 +25,13 @@ A dictionary, `activity_capacity`, sets the maximum number of students for each 
 The handler expects the raw CSV data in the `pd.steps['trigger']['event']['body']` structure. This CSV is read into a pandas DataFrame.
 
 3. **Calculate Preference Scores (Cost Matrix Base)**
+Student rankings are parsed. Score is assigned: higher rank = higher score. For N ranked activities, the first choice gets the score N, second gets N -1, etc. This socre is later converted ito a cost: Cost = Max_Score - Score
 
+4. **Expand Matrix for Capacity**
+The cost matrix is expanded by duplicating activity columns to match their capacity (e.g., "Water Polo" with capacity 5 becomes five columns: "Water Polo_1" to "Water Polo_5").
+
+5. **Run Optimisation**
+The Hungarian Algorithm (`linear_sum_assignment`) is applied to the final cost array to find the minimum total cost assignment between students (rows) and activity slots (columns).
+
+6. **Generate Output**
+The results are filtered to only include assignments where a student received a ranked activity (cost less than `max_score`) and compiled into an output CSV file named `Allocations.csv`.
