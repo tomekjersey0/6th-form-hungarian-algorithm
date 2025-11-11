@@ -35,3 +35,25 @@ The Hungarian Algorithm (`linear_sum_assignment`) is applied to the final cost a
 
 6. **Generate Output**
 The results are filtered to only include assignments where a student received a ranked activity (cost less than `max_score`) and compiled into an output CSV file named `Allocations.csv`.
+
+# Input CSV Format
+
+| Column Name | Description | Example Data |
+| :--- | :--- | :--- |
+| StudentEmail | Unique identifier for the student | `l.page@example.edu` |
+| StudentRankings | A comma-separated string of the student's activity preferences, in order | `1st XI,Badminton,Rec football` |
+
+## Example Input
+
+The script returns a CSV file (`Allocations.csv`) containing the optimal assignment:
+
+| Column Name | Description |
+| :--- | :--- |
+| **StudentEmail** | The email of the assigned student. |
+| **AssignedActivity** | The activity slot the student was assigned to. |
+
+**Example Output**
+
+`StudentEmail,AssignedActivity
+alice@example.com,Table Tennis
+bob@example.com,CV`
