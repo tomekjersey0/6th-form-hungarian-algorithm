@@ -4,8 +4,13 @@ import io
 
 def handler(pd, **kwargs): 
     activity_capacity = {
-        "Water Polo": 5, "1st XI": 10, "Badminton": 8, "CV": 20, 
-        "Rec football": 15, "Squash": 5, "Table Tennis": 10
+        "Rugby": 30, 
+        "Rec Football": 44, 
+        "CV Room": 25, 
+        "Basketball": 25, 
+        "Water Polo": 18, 
+        "Table Tennis": 24, 
+        "Squash": 12
     }
     
     try:
