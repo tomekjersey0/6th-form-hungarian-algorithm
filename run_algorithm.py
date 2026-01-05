@@ -16,11 +16,9 @@ def handler(pd, **kwargs):
     # --- 1. READ CSV SAFELY ---
     try:
         csv_data = pd.steps['trigger']['event']['body']
-        # decode if bytes
         if isinstance(csv_data, bytes):
             csv_data = csv_data.decode('utf-8')
         df = pds.read_csv(io.StringIO(csv_data.strip()))
-        # strip column names
         df.columns = [c.strip() for c in df.columns]
         if 'StudentEmail' not in df.columns or 'StudentRankings' not in df.columns:
             raise ValueError("Missing 'StudentEmail' or 'StudentRankings' column in CSV.")
@@ -29,20 +27,16 @@ def handler(pd, **kwargs):
 
     all_activities = list(activity_capacity.keys())
     num_activities = len(all_activities)
-    max_score = num_activities + 1 # Used for non-ranked activities
+    max_score = num_activities + 1  # Used for non-ranked activities
 
     # --- 2. BUILD SCORE MATRIX ---
-    # Store the actual list of rankings to look up the rank later
     ranking_data = {}
-    
     score_matrix = pds.DataFrame(0, index=df['StudentEmail'], columns=all_activities)
 
-    for index, row in df.iterrows():
+    for _, row in df.iterrows():
         email = row['StudentEmail']
         try:
-            # lower and strip for normalization
             rankings = [r.strip().lower() for r in row['StudentRankings'].split(',')]
-            # Store the rankings list for later lookup
             ranking_data[email] = rankings
         except AttributeError:
             rankings = []
@@ -52,7 +46,6 @@ def handler(pd, **kwargs):
 
         for i, activity in enumerate(rankings):
             if activity in score_matrix.columns:
-                # Score: total_ranks for 1st choice, total_ranks-1 for 2nd, etc.
                 score_matrix.loc[email, activity] = total_ranks - i
 
     # --- 3. CONVERT SCORES TO COSTS ---
@@ -73,17 +66,14 @@ def handler(pd, **kwargs):
             activity = activity_map[i]
             final_cost_matrix.loc[student, slot] = cost_matrix_base.loc[student, activity]
 
-    # fill NaNs (non-ranked activities) with max_score, and ensure numeric type
     final_cost_matrix = final_cost_matrix.fillna(max_score).astype(float)
     cost_array = final_cost_matrix.values
 
     # --- 5. RUN HUNGARIAN ALGORITHM ---
-    # 
     row_ind, col_ind = linear_sum_assignment(cost_array)
 
     # --- 6. BUILD ASSIGNMENTS WITH RANK ---
     assignments = []
-    # Dictionary to track the count of assignments per activity
     assigned_counts = {act: 0 for act in all_activities}
     
     for r, c in zip(row_ind, col_ind):
@@ -93,45 +83,48 @@ def handler(pd, **kwargs):
 
         # Only include assignments that are one of the student's choices (cost < max_score)
         if cost_of_assignment < max_score: 
-            
-            # Determine the rank of the assigned activity
-            try:
-                rankings_list = ranking_data[student_email]
-                i = -1
-                for idx, activity_name in enumerate(rankings_list):
-                    # Compare normalized names
-                    if activity_name == assigned_activity.lower():
-                        i = idx
-                        break
-                        
-                assigned_rank = i + 1
-            except Exception:
-                assigned_rank = 'N/A'
-            
+            rankings_list = ranking_data.get(student_email, [])
+            assigned_rank = None
+
+            # Find rank (1-based) by matching normalized names
+            for idx, activity_name in enumerate(rankings_list):
+                if activity_name == assigned_activity.lower():
+                    assigned_rank = idx + 1
+                    break
+
+            # If somehow not found despite cost < max_score, mark as 0 (unknown)
+            if assigned_rank is None:
+                assigned_rank = 0
+
             assignments.append({
                 "StudentEmail": student_email, 
                 "AssignedActivity": assigned_activity,
-                "AssignedRank": assigned_rank # The new column
+                "AssignedRank": assigned_rank
             })
-            
-            # Tally the successful assignment
             assigned_counts[assigned_activity] += 1
 
     # --- 7. CALCULATE REMAINING CAPACITY AND FORMAT OUTPUT ---
     assignments_df = pds.DataFrame(assignments)
     output = io.StringIO()
-    
-    # 7.1. Write the main allocation data
+
+    # 7.0 Sort/group allocations by rank (1st together, then 2nd, etc.)
+    if not assignments_df.empty:
+        assignments_df["AssignedRank"] = pds.to_numeric(assignments_df["AssignedRank"], errors="coerce").fillna(0).astype(int)
+        # Put unknown rank (0) at the end
+        assignments_df["_rank_sort"] = assignments_df["AssignedRank"].replace({0: 10**9})
+        assignments_df = assignments_df.sort_values(by=["_rank_sort", "AssignedActivity", "StudentEmail"]).drop(columns=["_rank_sort"])
+
+    # 7.1 Write the main allocation data
     assignments_df.to_csv(output, index=False)
-    
-    # 7.2. Calculate remaining capacity
+
+    # 7.2 Remaining capacity
     remaining_capacity = {}
     for act in all_activities:
         capacity = activity_capacity[act]
         assigned = assigned_counts[act]
         remaining_capacity[act] = capacity - assigned
 
-    # 7.3. Prepare the summary table
+    # 7.3 Summary table (remaining slots)
     summary_data = {
         "Activity": all_activities,
         "TotalCapacity": [activity_capacity[act] for act in all_activities],
@@ -140,14 +133,46 @@ def handler(pd, **kwargs):
     }
     summary_df = pds.DataFrame(summary_data)
 
-    # 7.4. Append the summary to the CSV output
-    # Add a separator line for clarity
     output.write('\n\n')
-    output.write('### Summary of Remaining Activity Slots for Manual Allocation ###\n') 
-    
-    # Write the summary DataFrame without the index and a header row (for manual readability)
+    output.write('### Summary of Remaining Activity Slots for Manual Allocation ###\n')
     summary_df.to_csv(output, index=False, header=True)
-    
+
+    # 7.4 Choice distribution segment (1st vs 2nd vs 3rd ... up to worst assigned)
+    output.write('\n\n')
+    output.write('### Choice Distribution of Assigned Students ###\n')
+
+    if assignments_df.empty:
+        output.write('No ranked assignments were produced.\n')
+    else:
+        valid_ranks = assignments_df.loc[assignments_df["AssignedRank"] > 0, "AssignedRank"]
+        if valid_ranks.empty:
+            output.write('No valid ranks found in assignments.\n')
+        else:
+            max_assigned_rank = int(valid_ranks.max())
+            total_assigned = int((assignments_df["AssignedRank"] > 0).sum())
+
+            # Count each rank from 1..max_assigned_rank (include zeros for missing ranks)
+            rank_counts = (
+                assignments_df.loc[assignments_df["AssignedRank"] > 0]
+                .groupby("AssignedRank")
+                .size()
+                .reindex(range(1, max_assigned_rank + 1), fill_value=0)
+            )
+
+            choice_summary_df = pds.DataFrame({
+                "ChoiceRank": rank_counts.index,
+                "AssignedCount": rank_counts.values,
+                "Ratio": [c / total_assigned if total_assigned else 0 for c in rank_counts.values],
+                "Percent": [round((c / total_assigned) * 100, 2) if total_assigned else 0 for c in rank_counts.values],
+            })
+
+            # Optional: a compact "1:2:3" style ratio line
+            ratio_line = ":".join(str(int(x)) for x in rank_counts.values)
+            output.write(f"TotalAssigned={total_assigned}\n")
+            output.write(f"CountsByChoiceRank (1..{max_assigned_rank}) = {ratio_line}\n\n")
+
+            choice_summary_df.to_csv(output, index=False, header=True)
+
     final_csv_text = output.getvalue()
 
     return {
