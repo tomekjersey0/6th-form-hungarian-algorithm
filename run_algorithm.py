@@ -107,24 +107,52 @@ def handler(pd, **kwargs):
     assignments_df = pds.DataFrame(assignments)
     output = io.StringIO()
 
-    # 7.0 Sort/group allocations by rank (1st together, then 2nd, etc.)
-    if not assignments_df.empty:
-        assignments_df["AssignedRank"] = pds.to_numeric(assignments_df["AssignedRank"], errors="coerce").fillna(0).astype(int)
-        # Put unknown rank (0) at the end
-        assignments_df["_rank_sort"] = assignments_df["AssignedRank"].replace({0: 10**9})
-        assignments_df = assignments_df.sort_values(by=["_rank_sort", "AssignedActivity", "StudentEmail"]).drop(columns=["_rank_sort"])
+    # --- 7.0 HUMAN-READABLE, RANK-GROUPED OUTPUT ---
+    assignments_df = pds.DataFrame(assignments)
+    output = io.StringIO()
 
-    # 7.1 Write the main allocation data
-    assignments_df.to_csv(output, index=False)
+    if assignments_df.empty:
+        output.write("No valid ranked assignments produced.\n")
+    else:
+        assignments_df["AssignedRank"] = (
+            pds.to_numeric(assignments_df["AssignedRank"], errors="coerce")
+            .fillna(0)
+            .astype(int)
+        )
 
-    # 7.2 Remaining capacity
+        # Only ranked assignments
+        ranked_df = assignments_df[assignments_df["AssignedRank"] > 0]
+
+        max_rank = ranked_df["AssignedRank"].max()
+
+        rank_labels = {
+            1: "First",
+            2: "Second",
+            3: "Third"
+        }
+
+        for rank in range(1, max_rank + 1):
+            label = rank_labels.get(rank, f"{rank}th")
+            section_title = f"### {label} Choice Assignments ###\n"
+            output.write(section_title)
+
+            section_df = ranked_df[ranked_df["AssignedRank"] == rank] \
+                .sort_values(by=["AssignedActivity", "StudentEmail"])
+
+            if section_df.empty:
+                output.write("None\n\n")
+            else:
+                section_df.to_csv(output, index=False)
+                output.write("\n")
+
+    # 7.1 Remaining capacity
     remaining_capacity = {}
     for act in all_activities:
         capacity = activity_capacity[act]
         assigned = assigned_counts[act]
         remaining_capacity[act] = capacity - assigned
 
-    # 7.3 Summary table (remaining slots)
+    # 7.2 Summary table (remaining slots)
     summary_data = {
         "Activity": all_activities,
         "TotalCapacity": [activity_capacity[act] for act in all_activities],
@@ -137,7 +165,7 @@ def handler(pd, **kwargs):
     output.write('### Summary of Remaining Activity Slots for Manual Allocation ###\n')
     summary_df.to_csv(output, index=False, header=True)
 
-    # 7.4 Choice distribution segment (1st vs 2nd vs 3rd ... up to worst assigned)
+    # 7.3 Choice distribution segment (1st vs 2nd vs 3rd ... up to worst assigned)
     output.write('\n\n')
     output.write('### Choice Distribution of Assigned Students ###\n')
 
